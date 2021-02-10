@@ -4,14 +4,14 @@
 """
 This script allows you to obtain gt instance and prediction instance matches for the 3D mAP model evaluation. At the end, you can evaluate the mean average precision of your model based on the IoU metric. To do the evaluation, set evaluate to True (default).
 """
-
+import os.path
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import time
-import os, sys
 import argparse
 import numpy as np
-import h5py
 
-from vol3d_eval import VOL3Deval
+from mAP_3Dvolume.vol3d_eval import VOL3Deval
 from vol3d_util import seg_iou3d_sorted,heatmap_to_score,readh5
 
 
