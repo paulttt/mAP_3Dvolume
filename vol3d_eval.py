@@ -67,6 +67,7 @@ class VOL3Deval:
         self.result_fn = result_fn
         self.result_p = result_p
         self.output_name = output_name
+        self.output_writer = None
 
         # load detection
         self.cocoDt = result_p[:, :2] # detections COCO API
@@ -76,11 +77,11 @@ class VOL3Deval:
             self.scores = np.zeros(self.D)
 
         self.params = Params(iouType=iouType) # parameters
-        self.th = self.params.iouThrs.repeat(self.D).reshape((-1,self.D)) #get same length as ious
+        self.th = self.params.iouThrs.repeat(self.D).reshape((-1, self.D)) #get same length as ious
         self.T = len(self.params.iouThrs)
 
         self.cocoGt = result_p[:, 2:].reshape(-1, 4, 3)    # ground truth COCO API
-        gid, gix = np.unique(np.hstack([self.result_fn[:, 2],self.cocoGt[:, 0, 0]]), return_index=True)
+        gid, gix = np.unique(np.hstack([self.result_fn[:, 2], self.cocoGt[:, 0, 0]]), return_index=True)
         gic = np.hstack([self.result_fn[:, 3], self.cocoGt[:, 0, 1]])[gix[gid > 0]]
         self.gid = gid[gid > 0].astype(int)
         self.gic = gic
@@ -110,13 +111,13 @@ class VOL3Deval:
         dtm = match_id * (match_iou >= self.th)
         # find detection outside the area range
         dtIg = (dtm > 0)*np.isin(dtm, gtIg_id).reshape(dtm.shape)
-        a = (self.cocoDt[:, 1] <= self.params.areaRng[area_id][0]) + (self.cocoDt[:, 1]>self.params.areaRng[area_id][1])
+        a = (self.cocoDt[:, 1] <= self.params.areaRng[area_id][0])+(self.cocoDt[:, 1] > self.params.areaRng[area_id][1])
         dtIg = np.logical_or(dtIg, np.logical_and(dtm == 0, np.tile(a, (self.T, 1))))
 
         tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
         fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
 
-        npig = (gtIg==0).sum()
+        npig = (gtIg == 0).sum()
         return tps, fps, npig
 
     def accumulate(self, p = None):
@@ -136,9 +137,9 @@ class VOL3Deval:
         T           = len(p.iouThrs)
         R           = len(p.recThrs)
         A           = len(p.areaRng)
-        precision   = -np.ones((T,R,A)) # -1 for the precision of absent categories
-        recall      = -np.ones((T,A))
-        scores      = -np.ones((T,R,A))
+        precision   = -np.ones((T, R, A)) #-1 for the precision of absent categories
+        recall      = -np.ones((T, A))
+        scores      = -np.ones((T, R, A))
 
         # create dictionary for future indexing
         _pe = self.params
@@ -149,7 +150,6 @@ class VOL3Deval:
         # retrieve E at each category, area range, and max number of detections
         Nk = A0
         for a, a0 in enumerate(a_list):
-            print(a)
             tps, fps, npig = self.get_dtm_by_area(a)
             if npig == 0:
                 continue
@@ -198,18 +198,18 @@ class VOL3Deval:
             'scores': scores,
         }
         toc = time.time()
-        print('DONE (t={:0.2f}s).'.format( toc-tic))
+        print('DONE (t={:0.2f}s).'.format(toc-tic))
 
     def summarize(self):
         '''
         Compute and display summary metrics for evaluation results.
-        Note this functin can *only* be applied on the default parameter setting
+        Note this function can *only* be applied on the default parameter setting
         '''
-        def _summarize( ap=1, iouThr=None, areaRng='all', maxDets=100 ):
+        def _summarize(ap=1, iouThr=None, areaRng='all', maxDets=100):
             p = self.params
             iStr = ' {:<18} {} @[ IoU={:<9} | area={:>6s} | maxDets={:>3d} ] = {:0.3f}'
             titleStr = 'Average Precision' if ap == 1 else 'Average Recall'
-            typeStr = '(AP)' if ap==1 else '(AR)'
+            typeStr = '(AP)' if ap == 1 else '(AR)'
             iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
                 if iouThr is None else '{:0.2f}'.format(iouThr)
 
@@ -222,15 +222,15 @@ class VOL3Deval:
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,:,aind]
+                s = s[:, :, aind]
             else:
                 # dimension of recall: [TxKxAxM]
                 s = self.eval['recall']
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,aind]
-            if len(s[s>-1])==0:
+                s = s[:, aind]
+            if len(s[s > -1]) == 0:
                 mean_s = -1
             else:
                 mean_s = np.mean(s[s>-1])
@@ -263,7 +263,7 @@ class VOL3Deval:
         if not self.eval:
             raise Exception('Please run accumulate() first')
 
-        self.output_writer = open(self.output_name+'_map.txt','w') if self.output_name!='' else None
+        #self.output_writer = open(self.output_name+'_map.txt', 'w') if self.output_name != '' else None
         iouType = self.params.iouType
         if iouType == 'segm' or iouType == 'bbox':
             summarize = _summarizeDets
@@ -292,7 +292,7 @@ class VOL3Deval:
         Compute and display summary metrics for evaluation results.
         Note this functin can *only* be applied on the default parameter setting
         '''
-        def _summarize( ap=1, iouThr=None, areaRng='all', maxDets=100 ):
+        def _summarize(ap=1, iouThr=None, areaRng='all', maxDets=100):
             p = self.params
 
             aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
@@ -304,18 +304,18 @@ class VOL3Deval:
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,:,aind]
+                s = s[:, :, aind]
             else:
                 # dimension of recall: [TxKxAxM]
                 s = self.eval['recall']
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,aind]
-            if len(s[s>-1])==0:
+                s = s[:, aind]
+            if len(s[s > -1]) == 0:
                 mean_s = -1
             else:
-                mean_s = np.mean(s[s>-1])
+                mean_s = np.mean(s[s > -1])
 
             return mean_s
 
@@ -360,7 +360,8 @@ class VOL3Deval:
         stats['Recall'] = self.eval['recall']
         stats['Scores'] = self.eval['scores']
         return stats
-        
+
+
 class Params:
     '''
     Params for coco evaluation api
@@ -369,7 +370,7 @@ class Params:
     	# np.arange causes trouble.  the data point on arange is slightly larger than the true
         self.iouThrs = np.linspace(.5, 0.95, int(np.round((0.95 - .5) / .05) + 1), endpoint=True)
         self.recThrs = np.linspace(.0, 1.00, int(np.round((1.00 - .0) / .01) + 1), endpoint=True)
-        self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 128 ** 2], [ 128 ** 2, 256 ** 2], [256 ** 2, 1e5 ** 2]]
+        self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 128 ** 2], [128 ** 2, 256 ** 2], [256 ** 2, 1e5 ** 2]]
         self.areaRngLbl = ['all', 'small', 'medium', 'large']
 
     def __init__(self, iouType='segm'):

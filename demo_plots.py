@@ -6,30 +6,30 @@ import h5py
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mAP_3Dvolume.vol3d_eval import VOL3Deval
-from vol3d_util import seg_iou2d_sorted,seg_iou3d_sorted,heatmap_to_score,readh5
+from vol3d_util import seg_iou2d_sorted, seg_iou3d_sorted, heatmap_to_score, readh5
 
 def get_scores(pred_seg, gt_seg):
     sz_gt = np.array(gt_seg.shape)
     sz_pred = pred_seg.shape
     if np.abs((sz_gt-sz_pred)).max()>0:
-        print('Warning: size mismatch. gt: ',sz_gt,', pred: ',sz_pred)
-    sz = np.minimum(sz_gt,sz_pred)
-    pred_seg = pred_seg[:sz[0],:sz[1]]
-    gt_seg = gt_seg[:sz[0],:sz[1]]
+        print('Warning: size mismatch. gt: ', sz_gt,', pred: ', sz_pred)
+    sz = np.minimum(sz_gt, sz_pred)
+    pred_seg = pred_seg[:sz[0], :sz[1]]
+    gt_seg = gt_seg[:sz[0], :sz[1]]
     
-    ui,uc = np.unique(pred_seg,return_counts=True)
+    ui, uc = np.unique(pred_seg,return_counts=True)
     uc = uc[ui>0]
     ui = ui[ui>0]
-    pred_score = np.ones([len(ui),2],int)
-    pred_score[:,0] = ui
-    pred_score[:,1] = uc
+    pred_score = np.ones([len(ui), 2], int)
+    pred_score[:, 0] = ui
+    pred_score[:, 1] = uc
     
     thres = np.fromstring('5e3, 1.5e4', sep = ",")
-    areaRng = np.zeros((len(thres)+2,2),int)
-    areaRng[0,1] = 1e10
-    areaRng[-1,1] = 1e10
-    areaRng[2:,0] = thres
-    areaRng[1:-1,1] = thres
+    areaRng = np.zeros((len(thres)+2, 2), int)
+    areaRng[0, 1] = 1e10
+    areaRng[-1, 1] = 1e10
+    areaRng[2:, 0] = thres
+    areaRng[1:-1, 1] = thres
     
     return pred_score, areaRng
 

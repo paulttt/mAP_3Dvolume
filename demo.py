@@ -54,33 +54,33 @@ def load_data(args):
     # check shape match
     sz_gt = np.array(gt_seg.shape)
     sz_pred = pred_seg.shape
-    if np.abs((sz_gt-sz_pred)).max()>0:
-        print('Warning: size mismatch. gt: ',sz_gt,', pred: ',sz_pred)
-    sz = np.minimum(sz_gt,sz_pred)
-    pred_seg = pred_seg[:sz[0],:sz[1],:sz[2]]
-    gt_seg = gt_seg[:sz[0],:sz[1],:sz[2]]
+    if np.abs((sz_gt-sz_pred)).max() > 0:
+        print('Warning: size mismatch. gt: ', sz_gt, ', pred: ', sz_pred)
+    sz = np.minimum(sz_gt, sz_pred)
+    pred_seg = pred_seg[:sz[0], :sz[1], :sz[2]]
+    gt_seg = gt_seg[:sz[0], :sz[1], :sz[2]]
 
     if args.predict_score != '':
         # Nx2: pred_id, pred_sc
         pred_score = readh5(args.predict_score)
-    elif args.predict_heatmap!='':
+    elif args.predict_heatmap != '':
         pred_heatmap = readh5(args.predict_heatmap)
         r_id, r_score, _ = heatmap_to_score(pred_seg, pred_heatmap, args.predict_heatmap_channel)
         pred_score = np.vstack([r_id, r_score]).T 
     else: # default: sort by size
-        ui,uc = np.unique(pred_seg,return_counts=True)
-        uc = uc[ui>0]
-        ui = ui[ui>0]
-        pred_score = np.ones([len(ui),2],int)
-        pred_score[:,0] = ui
-        pred_score[:,1] = uc
+        ui, uc = np.unique(pred_seg, return_counts=True)
+        uc = uc[ui > 0]
+        ui = ui[ui > 0]
+        pred_score = np.ones([len(ui), 2], int)
+        pred_score[:, 0] = ui
+        pred_score[:, 1] = uc
 
-    thres = np.fromstring(args.threshold, sep = ",")
-    areaRng = np.zeros((len(thres)+2,2),int)
-    areaRng[0,1] = 1e10
-    areaRng[-1,1] = 1e10
-    areaRng[2:,0] = thres
-    areaRng[1:-1,1] = thres
+    thres = np.fromstring(args.threshold, sep=",")
+    areaRng = np.zeros((len(thres)+2, 2), int)
+    areaRng[0, 1] = 1e10
+    areaRng[-1, 1] = 1e10
+    areaRng[2:, 0] = thres
+    areaRng[1:-1, 1] = thres
     return gt_seg, pred_seg, pred_score, areaRng
 
 def main():
@@ -103,10 +103,10 @@ def main():
     result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, areaRng)
     
     stop_time = int(round(time.time() * 1000))
-    print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
+    print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000))
 
     ## 3. Evaluation script for 3D instance segmentation
-    if args.output_name=='':
+    if args.output_name == '':
         args.output_name = args.predict_seg[:args.predict_seg.rfind('.')] 
     v3dEval = VOL3Deval(result_p, result_fn, pred_score_sorted, output_name=args.output_name)
     if args.do_txt > 0:
