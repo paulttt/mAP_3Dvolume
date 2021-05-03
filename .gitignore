@@ -1,6 +1,9 @@
 # make sure not to upload the json files that contain the COCO segmentation format
 *.json
 
+#do not upload any data files
+data/
+
 # do not upload the COCO git repo
 cocoapi/
 

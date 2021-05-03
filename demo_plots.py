@@ -5,8 +5,8 @@ import numpy as np
 import h5py
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from mAP_3Dvolume.vol3d_eval import VOL3Deval
-from vol3d_util import seg_iou2d_sorted, seg_iou3d_sorted, heatmap_to_score, readh5
+from mAP_3Dvolume.vol3d_eval_custom import VOL3Deval
+from vol3d_util_custom import seg_iou2d_sorted, seg_iou3d_sorted, heatmap_to_score, readh5
 
 def get_scores(pred_seg, gt_seg):
     sz_gt = np.array(gt_seg.shape)

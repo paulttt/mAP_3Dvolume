@@ -1,7 +1,6 @@
 import sys
 import numpy as np
 import h5py
-from tqdm import tqdm
 
 
 ####
@@ -12,15 +11,77 @@ from tqdm import tqdm
 # 3. instance seg -> bbox
 # 4. instance seg + gt seg + instance score -> sorted match result
 
+# 0. I/O
+def seg2im(seg): # seg -> 3-channel image
+    if seg.max()>255:
+        return np.stack([seg//65536, seg//256, seg%256],axis=2).astype(np.uint8)
+    else:
+        return seg.astype(np.uint8)
+
+def im2seg(im): # image -> seg
+    if im.ndim==2:
+        return im
+    else:
+        return im[:,:,0].astype(np.uint32)*65536+im[:,:,1].astype(np.uint32)*256+im[:,:,2].astype(np.uint32)
+
+def heatmap_by_channel(im, channel=-1): # image to heatmap
+    if channel != -1:
+        heatmap = im[channel]
+    else:
+        heatmap = im.mean(axis=0)
+    return heatmap
+
 def readh5(path, vol=''):
     # do the first key
     fid = h5py.File(path, 'r')
-    if vol == '':
+    if vol == '': 
         if sys.version[0] == '3':
             vol = list(fid)[0]
-        else:  # python 2
-            vol = fid.keys()[0]
+        else: # python 2
+            vol = fid.keys()[0] 
     return np.array(fid[vol]).squeeze()
+
+# 1. binary pred -> instance seg
+def seg_bbox2d(seg,do_count=False, uid=None):
+    sz = seg.shape
+    assert len(sz) == 2
+    if uid is None:
+        uid = np.unique(seg)
+        uid = uid[uid > 0]
+
+    um = uid.max()
+    out = np.zeros((1+int(um), 5+do_count), dtype=np.uint32)
+    out[:, 0] = np.arange(out.shape[0])
+    out[:, 1] = sz[0]
+    out[:, 3] = sz[1]
+    # for each row
+    rids = np.where((seg > 0).sum(axis=1) > 0)[0]
+    for rid in rids:
+        sid = np.unique(seg[rid])
+        sid = sid[(sid > 0)*(sid <= um)]
+        out[sid, 1] = np.minimum(out[sid, 1], rid)
+        out[sid, 2] = np.maximum(out[sid, 2], rid)
+    cids = np.where((seg > 0).sum(axis=0) > 0)[0]
+    for cid in cids:
+        sid = np.unique(seg[:, cid])
+        sid = sid[(sid > 0)*(sid <= um)]
+        out[sid, 3] = np.minimum(out[sid, 3], cid)
+        out[sid, 4] = np.maximum(out[sid, 4], cid)
+
+    if do_count:
+        ui, uc = np.unique(seg, return_counts=True)
+        out[ui, -1] = uc
+    return out[uid]
+
+def getSegType(mid):
+    m_type = np.uint64
+    if mid < 2**8:
+        m_type = np.uint8
+    elif mid < 2**16:
+        m_type = np.uint16
+    elif mid < 2**32:
+        m_type = np.uint32
+    return m_type
 
 
 def readh5_handle(path, vol=''):
@@ -51,7 +112,6 @@ def unique_chunk(seg, slices, chunk_size=50, do_count=True):
     # load unique segment ids and segment sizes (in voxels) chunk by chunk
     num_z = slices[1] - slices[0]
     num_chunk = (num_z + chunk_size - 1) // chunk_size
-
     uc_arr = None
     ui = []
     for cid in range(num_chunk):
@@ -137,7 +197,6 @@ def seg_bbox3d(seg, slices, uid=None, chunk_size=50):
     num_z = slices[1] - slices[0]
     num_chunk = (num_z + chunk_size - 1) // chunk_size
     for chunk_id in range(num_chunk):
-        print('\t\t chunk %d' % chunk_id)
         z0 = chunk_id * chunk_size + slices[0]
         # compute max index, modulo takes care of slices[1] = -1
         max_idx = min([z0 + chunk_size, slices[1]])
@@ -195,7 +254,6 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
     else:
         todo_sz = predict_sz_rl[todo_id]
 
-    print('\t compute bounding boxes')
     bbs = seg_bbox3d(pred, slices, uid=todo_id, chunk_size=chunk_size)[:, 1:]
 
     result_p = np.zeros((len(todo_id), 2 + 3 * areaRng.shape[0]), float)
@@ -205,8 +263,7 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
     gt_matched_id = np.zeros(1 + gt_id.max(), int)
     gt_matched_iou = np.zeros(1 + gt_id.max(), float)
 
-    print('\t compute iou matching')
-    for j, i in tqdm(enumerate(todo_id)):
+    for j, i in enumerate(todo_id):
         # Find intersection of pred and gt instance inside bbox, call intersection match_id
         bb = bbs[j]
         # can be big memory
@@ -258,6 +315,90 @@ def seg_iou3d_sorted(pred, gt, score, slices, areaRng=[0, 1e10], chunk_size=250,
     pred_id_sorted = np.argsort(-relabel[pred_id])
 
     result_p, result_fn = seg_iou3d(pred, gt, slices, areaRng, pred_id[pred_id_sorted], chunk_size, crumb_size)
+    # format: pid,pc,p_score, gid,gc,iou
+    pred_score_sorted = relabel[pred_id_sorted].reshape(-1, 1)
+    return result_p, result_fn, pred_score_sorted
+
+def seg_iou2d(pred, gt, areaRng=np.array([]), todo_id=None):
+    # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
+    # (pred,gt)
+    # return: id_1,id_2,size_1,size_2,iou
+    pred_id, pred_sz = np.unique(pred, return_counts=True)
+    pred_sz = pred_sz[pred_id > 0]
+    pred_id = pred_id[pred_id > 0]
+    predict_sz_rl = np.zeros(int(pred_id.max())+1, int)
+    predict_sz_rl[pred_id] = pred_sz
+    
+    gt_id, gt_sz = np.unique(gt, return_counts=True)
+    gt_sz = gt_sz[gt_id > 0]; gt_id = gt_id[gt_id > 0]
+    
+    if todo_id is None:
+        todo_id = pred_id
+        todo_sz = pred_sz
+    else:
+        todo_sz = predict_sz_rl[todo_id]
+   
+    #print('\t compute bounding boxes')
+    bbs = seg_bbox2d(pred, uid=todo_id)[:, 1:]
+    
+    result_p = np.zeros((len(todo_id), 2+3*areaRng.shape[0]), float)
+    result_p[:, 0] = todo_id
+    result_p[:, 1] = todo_sz
+
+    gt_matched_id = np.zeros(1+gt_id.max(), int)
+    gt_matched_iou = np.zeros(1+gt_id.max(), float)
+
+    #print('\t compute iou matching')
+    for j, i in enumerate(todo_id):
+        # Find intersection of pred and gt instance inside bbox, call intersection match_id
+        bb = bbs[j]
+        match_id, match_sz = np.unique(gt[bb[0]:bb[1]+1, bb[2]:bb[3]+1]*(pred[bb[0]:bb[1]+1, bb[2]:bb[3]+1] == i), return_counts=True)
+        match_sz = match_sz[match_id > 0] # get intersection counts
+        match_id = match_id[match_id > 0] # get intersection ids
+        if len(match_id) > 0:
+            # get count of all preds inside bbox (assume gt_id,match_id are of ascending order)
+            gt_sz_match = gt_sz[np.isin(gt_id, match_id)]
+            ious = match_sz.astype(float)/(todo_sz[j] + gt_sz_match - match_sz) #all possible iou combinations of bbox ids are contained
+            
+            for r in range(areaRng.shape[0]): # fill up all, then s, m, l
+                gid = (gt_sz_match > areaRng[r, 0])*(gt_sz_match <= areaRng[r, 1])
+                if sum(gid) > 0:
+                    idx_iou_max = np.argmax(ious*gid)
+                    result_p[j, 2+r*3:2+r*3+3] = [match_id[idx_iou_max], gt_sz_match[idx_iou_max], ious[idx_iou_max]]
+            # update set2
+            gt_todo = gt_matched_iou[match_id] < ious
+            gt_matched_iou[match_id[gt_todo]] = ious[gt_todo]
+            gt_matched_id[match_id[gt_todo]] = i
+                
+    # get the rest: false negative + dup
+    fn_gid = gt_id[np.isin(gt_id, result_p[:, 2], assume_unique=False, invert=True)]
+    fn_gic = gt_sz[np.isin(gt_id, fn_gid)]
+    fn_iou = gt_matched_iou[fn_gid]
+    fn_pid = gt_matched_id[fn_gid]
+    fn_pic = predict_sz_rl[fn_pid]
+    
+    # add back duplicate
+    # instead of bookkeeping in the previous step, faster to redo them    
+    result_fn = np.vstack([fn_pid, fn_pic, fn_gid, fn_gic, fn_iou]).T
+    
+    return result_p, result_fn
+
+def seg_iou2d_sorted(pred, gt, score, areaRng=[0, 1e10]):
+    # pred_score: Nx2 [id, score]
+    # 1. sort prediction by confidence score
+    try:
+        relabel = np.zeros(int(np.max(score[:, 0])+1), float)
+    except:
+        print("\n\nMake sure your data has no error !\n\n")
+    relabel[score[:,0].astype(int)] = score[:, 1]
+    
+    # 1. sort the prediction by confidence
+    pred_id = np.unique(pred)
+    pred_id = pred_id[pred_id > 0]
+    pred_id_sorted = np.argsort(-relabel[pred_id])
+
+    result_p, result_fn = seg_iou2d(pred, gt, areaRng, todo_id=pred_id[pred_id_sorted])
+
     # format: pid,pc,p_score, gid,gc,iou
     pred_score_sorted = relabel[pred_id_sorted].reshape(-1, 1)
     return result_p, result_fn, pred_score_sorted

@@ -1,4 +1,3 @@
-
 import numpy as np
 import datetime
 import time
@@ -68,22 +67,23 @@ class VOL3Deval:
         self.result_fn = result_fn
         self.result_p = result_p
         self.output_name = output_name
+        self.output_writer = None
 
         # load detection
-        self.cocoDt = result_p[:,:2] # detections COCO API
+        self.cocoDt = result_p[:, :2] # detections COCO API
         self.D = self.cocoDt.shape[0]
         self.scores = score_p # detections COCO API
         if self.scores is None:
             self.scores = np.zeros(self.D)
 
         self.params = Params(iouType=iouType) # parameters
-        self.th = self.params.iouThrs.repeat(self.D).reshape((-1,self.D)) #get same length as ious
+        self.th = self.params.iouThrs.repeat(self.D).reshape((-1, self.D)) #get same length as ious
         self.T = len(self.params.iouThrs)
 
-        self.cocoGt = result_p[:,2:].reshape(-1,4,3)    # ground truth COCO API
-        gid,gix = np.unique(np.hstack([self.result_fn[:,2],self.cocoGt[:,0,0]]), return_index=True)
-        gic = np.hstack([self.result_fn[:,3],self.cocoGt[:,0,1]])[gix[gid>0]]
-        self.gid = gid[gid>0].astype(int)
+        self.cocoGt = result_p[:, 2:].reshape(-1, 4, 3)    # ground truth COCO API
+        gid, gix = np.unique(np.hstack([self.result_fn[:, 2], self.cocoGt[:, 0, 0]]), return_index=True)
+        gic = np.hstack([self.result_fn[:, 3], self.cocoGt[:, 0, 1]])[gix[gid > 0]]
+        self.gid = gid[gid > 0].astype(int)
         self.gic = gic
         self.G = len(self.gid)
 
@@ -96,28 +96,28 @@ class VOL3Deval:
         at each IoU threshold.
         """
 
-        cocoGt = self.cocoGt[:,area_id]
+        cocoGt = self.cocoGt[:, area_id]
 
         # gtIg: size self.G (include 0)
-        gtIg = (self.gic<=self.params.areaRng[area_id,0])+(self.gic>self.params.areaRng[area_id,1])
+        gtIg = (self.gic <= self.params.areaRng[area_id][0])+(self.gic>self.params.areaRng[area_id][1])
         gtIg_id = self.gid[gtIg]
 
         # if no match in the area range, add back best
-        match_id = cocoGt[:,0].astype(int)
-        match_iou = cocoGt[:,2]
-        match_iou[match_id==0] = self.cocoGt[match_id==0,0,2]
-        match_id[match_id==0] = self.cocoGt[match_id==0,0,0]
+        match_id = cocoGt[:, 0].astype(int)
+        match_iou = cocoGt[:, 2]
+        match_iou[match_id == 0] = self.cocoGt[match_id == 0, 0, 2]
+        match_id[match_id == 0] = self.cocoGt[match_id == 0, 0, 0]
 
-        dtm = match_id*(match_iou>=self.th)
+        dtm = match_id * (match_iou >= self.th)
         # find detection outside the area range
-        dtIg = (dtm>0)*np.isin(dtm,gtIg_id).reshape(dtm.shape)
-        a = (self.cocoDt[:,1]<=self.params.areaRng[area_id,0])+(self.cocoDt[:,1]>self.params.areaRng[area_id,1])
-        dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.tile(a,(self.T,1))))
+        dtIg = (dtm > 0)*np.isin(dtm, gtIg_id).reshape(dtm.shape)
+        a = (self.cocoDt[:, 1] <= self.params.areaRng[area_id][0])+(self.cocoDt[:, 1] > self.params.areaRng[area_id][1])
+        dtIg = np.logical_or(dtIg, np.logical_and(dtm == 0, np.tile(a, (self.T, 1))))
 
         tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
         fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
 
-        npig = (gtIg==0).sum()
+        npig = (gtIg == 0).sum()
         return tps, fps, npig
 
     def accumulate(self, p = None):
@@ -127,8 +127,6 @@ class VOL3Deval:
         :return: None
         '''
 
-        print('Accumulating evaluation results...')
-        tic = time.time()
 #         if not self.evalImgs:
 #             print('Please run evaluate() first')
         # allows input customized parameters
@@ -137,9 +135,9 @@ class VOL3Deval:
         T           = len(p.iouThrs)
         R           = len(p.recThrs)
         A           = len(p.areaRng)
-        precision   = -np.ones((T,R,A)) # -1 for the precision of absent categories
-        recall      = -np.ones((T,A))
-        scores      = -np.ones((T,R,A))
+        precision   = -np.ones((T, R, A)) #-1 for the precision of absent categories
+        recall      = -np.ones((T, A))
+        scores      = -np.ones((T, R, A))
 
         # create dictionary for future indexing
         _pe = self.params
@@ -150,7 +148,7 @@ class VOL3Deval:
         # retrieve E at each category, area range, and max number of detections
         Nk = A0
         for a, a0 in enumerate(a_list):
-            tps,fps,npig = self.get_dtm_by_area(a)
+            tps, fps, npig = self.get_dtm_by_area(a)
             if npig == 0:
                 continue
 
@@ -167,9 +165,9 @@ class VOL3Deval:
                 ss = np.zeros((R,))
 
                 if nd:
-                    recall[t,a] = rc[-1]
+                    recall[t, a] = rc[-1]
                 else:
-                    recall[t,a] = 0
+                    recall[t, a] = 0
 
                 # numpy is slow without cython optimization for accessing elements
                 # use python array gets significant speed improvement
@@ -186,8 +184,8 @@ class VOL3Deval:
                         ss[ri] = self.scores[pi]
                 except:
                     pass
-                precision[t,:,a] = np.array(q)
-                scores[t,:,a] = np.array(ss)
+                precision[t, :, a] = np.array(q)
+                scores[t, :, a] = np.array(ss)
         self.eval = {
             'params': p,
             'counts': [T, R, A],
@@ -197,19 +195,17 @@ class VOL3Deval:
             'recall':   recall,
             'scores': scores,
         }
-        toc = time.time()
-        print('DONE (t={:0.2f}s).'.format( toc-tic))
 
     def summarize(self):
         '''
         Compute and display summary metrics for evaluation results.
-        Note this functin can *only* be applied on the default parameter setting
+        Note this function can *only* be applied on the default parameter setting
         '''
-        def _summarize( ap=1, iouThr=None, areaRng='all', maxDets=100 ):
+        def _summarize(ap=1, iouThr=None, areaRng='all', maxDets=100):
             p = self.params
             iStr = ' {:<18} {} @[ IoU={:<9} | area={:>6s} | maxDets={:>3d} ] = {:0.3f}'
             titleStr = 'Average Precision' if ap == 1 else 'Average Recall'
-            typeStr = '(AP)' if ap==1 else '(AR)'
+            typeStr = '(AP)' if ap == 1 else '(AR)'
             iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
                 if iouThr is None else '{:0.2f}'.format(iouThr)
 
@@ -220,19 +216,17 @@ class VOL3Deval:
                 s = self.eval['precision']
                 # IoU
                 if iouThr is not None:
-                    # avoid floating pt issue
-                    t = np.where(np.abs(p.iouThrs - iouThr) < 1e-5)[0]
+                    t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,:,aind]
+                s = s[:, :, aind]
             else:
                 # dimension of recall: [TxKxAxM]
                 s = self.eval['recall']
                 if iouThr is not None:
-                    # avoid floating pt issue
-                    t = np.where(np.abs(p.iouThrs - iouThr) < 1e-5)[0]
+                    t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,aind]
-            if len(s[s>-1])==0:
+                s = s[:, aind]
+            if len(s[s > -1]) == 0:
                 mean_s = -1
             else:
                 mean_s = np.mean(s[s>-1])
@@ -250,10 +244,9 @@ class VOL3Deval:
             stats[0] = _summarize(1)
             stats[1] = _summarize(1, iouThr=.5)#, maxDets=self.params.maxDets[2])
             stats[2] = _summarize(1, iouThr=.75)#, maxDets=self.params.maxDets[2])
-            stats[3] = _summarize(1, iouThr=.9)#, maxDets=self.params.maxDets[2])
-            #stats[3] = _summarize(1, areaRng='small', iouThr=.75)#, maxDets=self.params.maxDets[2])
-            #stats[4] = _summarize(1, areaRng='medium', iouThr=.75)#, maxDets=self.params.maxDets[2])
-            #stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            stats[3] = _summarize(1, areaRng='small', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            stats[4] = _summarize(1, areaRng='medium', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
             # no recall
             """
             stats[6] = _summarize(0)#, maxDets=self.params.maxDets[0])
@@ -266,7 +259,7 @@ class VOL3Deval:
         if not self.eval:
             raise Exception('Please run accumulate() first')
 
-        self.output_writer = open(self.output_name+'_map.txt','w') if self.output_name!='' else None
+        #self.output_writer = open(self.output_name+'_map.txt', 'w') if self.output_name != '' else None
         iouType = self.params.iouType
         if iouType == 'segm' or iouType == 'bbox':
             summarize = _summarizeDets
@@ -277,18 +270,95 @@ class VOL3Deval:
 
     def save_match_p(self, output_name=''):
         header = '\tprediction  |\t\t gt all \t\t|\t\t gt small \t\t|\t\tgt medium \t\t|\t gt large\n' + \
-                    'ID\tSIZE\t| ID\tSIZE\tIoU\t\t| ID\tSIZE\tIoU\t\t| ID\tSIZE\tIoU\t\t| ID\tSIZE\tIoU\n' + '-'*108
-        rowformat = '%d\t\t%4d\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f'
+                    'ID\tSIZE\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU \t\n' + '-'*108
+        rowformat = '%d\t%4d\t%d\t%4d\t%.4f\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t%d\t%4d\t%.4f'
         np.savetxt(self.output_name+output_name+'_match_p.txt', self.result_p, fmt=rowformat, header=header)
 
     def save_match_fn(self, output_name=''):
-        header = '\tprediction \t|\t\tgt \t\n' + \
+        header = '\tprediction \t |\t gt \t\n' + \
                     'ID\tSIZE\t| ID\tSIZE\tIoU \n' + '-'*40
-        rowformat = '%d\t\t%4d\t\t%d\t%4d\t%.4f'
+        rowformat = '%d\t%4d\t%d\t%4d\t%.4f'
         np.savetxt(self.output_name+output_name+'_match_fn.txt', self.result_fn, fmt=rowformat, header=header)
 
     def __str__(self):
         self.summarize()
+    
+    def summarize_without_file(self):
+        '''
+        Compute and display summary metrics for evaluation results.
+        Note this functin can *only* be applied on the default parameter setting
+        '''
+        def _summarize(ap=1, iouThr=None, areaRng='all', maxDets=100):
+            p = self.params
+
+            aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
+
+            if ap == 1:
+                # dimension of precision: [TxRxKxAxM]
+                s = self.eval['precision']
+                # IoU
+                if iouThr is not None:
+                    t = np.where(np.abs(p.iouThrs - iouThr) < 1e-5)[0]
+                    s = s[t]
+                s = s[:, :, aind]
+            else:
+                # dimension of recall: [TxKxAxM]
+                s = self.eval['recall']
+                if iouThr is not None:
+                    t = np.where(np.abs(p.iouThrs - iouThr) < 1e-5)[0]
+                    s = s[t]
+                s = s[:, aind]
+            if len(s[s > -1]) == 0:
+                mean_s = -1
+            else:
+                mean_s = np.mean(s[s > -1])
+
+            return mean_s
+
+        def _summarizeDets():
+            stats = np.zeros((10,))
+            stats[0] = _summarize(1)
+            stats[1] = _summarize(1, iouThr=.5)#, maxDets=self.params.maxDets[2])
+            stats[2] = _summarize(1, iouThr=.75)#, maxDets=self.params.maxDets[2])
+            stats[3] = _summarize(1, iouThr=.9)  # , maxDets=self.params.maxDets[2])
+            # stats[3] = _summarize(1, areaRng='small', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            # stats[4] = _summarize(1, areaRng='medium', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            # stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            # no recall
+            """
+            stats[6] = _summarize(0)#, maxDets=self.params.maxDets[0])
+            stats[7] = _summarize(0, areaRng='small')
+            stats[8] = _summarize(0, areaRng='medium')
+            stats[9] = _summarize(0, areaRng='large')
+            """
+            return stats
+
+        if not self.eval:
+            raise Exception('Please run accumulate() first')
+
+        iouType = self.params.iouType
+        if iouType == 'segm' or iouType == 'bbox':
+            summarize = _summarizeDets
+        
+        self.stats = _summarizeDets()
+            
+    def get_stats(self):
+        stats = {}
+        self.accumulate()
+        self.summarize_without_file()
+        stats['mAP @ 0.5:0.95'] = self.stats[0]
+        stats['AP @ 0.5'] = self.stats[1]
+        stats['AP @ 0.75'] = self.stats[2]
+        stats['AP @ 0.9'] = self.stats[3]
+        #stats['small @ 0.75'] = self.stats[3]
+        #stats['medium @ 0.75'] = self.stats[4]
+        #stats['large @ 0.75'] = self.stats[5]
+        stats['Precision'] = self.eval['precision']
+        stats['Average Precision'] = np.mean(self.eval['precision'], axis=1)
+        stats['Recall'] = self.eval['recall']
+        stats['Scores'] = self.eval['scores']
+        return stats
+
 
 class Params:
     '''
